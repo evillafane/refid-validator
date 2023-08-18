@@ -1,5 +1,6 @@
 const axios = require('axios');
 const fs = require('fs');
+const { MultiBar, Presets } = require('cli-progress');
 
 async function fetchAllSKUs(accountName, appKey, appToken) {
     const apiUrl = `https://${accountName}.vtexcommercestable.com.br/api/catalog_system/pvt/sku/stockkeepingunitids`;
@@ -44,10 +45,11 @@ async function fetchSKUData(apiUrl, headers, skuId, maxRetries) {
 
             console.log(`Retrying SKU ${skuId} due to status ${response.status}`);
         } catch (error) {
-            console.error(`Error fetching SKU ${skuId}: ${error.message}`);
+            
+        } finally {
+            retries += 1;
         }
 
-        retries += 1;
     }
 
     throw new Error(`Failed to fetch SKU ${skuId} after ${maxRetries} retries`);
@@ -59,9 +61,13 @@ async function fetchInvalidProductIds(accountName, appKey, appToken, maxRetries 
     const invalidProductIds = new Set();
     const batchSize = 1000;
 
+    const multiBar = new MultiBar();
+
     for (let i = 0; i < skuList.length; i += batchSize) {
         const batch = skuList.slice(i, i + batchSize);
 
+        const batchBar = multiBar.create(batch.length, 0);
+        
         const batchRequests = batch.map(async (skuId) => {
             const apiUrl = `https://${accountName}.vtexcommercestable.com.br/api/catalog_system/pvt/sku/stockkeepingunitbyid/${skuId}`;
             const headers = getHeaders(appKey, appToken);
@@ -72,20 +78,20 @@ async function fetchInvalidProductIds(accountName, appKey, appToken, maxRetries 
                 const currentProduct = response.data;
 
                 if (!currentProduct.ProductRefId) {
-                    console.log(`SKU ${skuId} has no ProductRefId`);
                     invalidProductIds.add(currentProduct.ProductId);
-                } else {
-                    console.log(`SKU ${skuId} has ProductRefId ${currentProduct.ProductRefId}`);
                 }
             }
+            batchBar.increment();
         });
 
         await Promise.all(batchRequests);
 
-        console.log(`Processed ${i + batch.length} SKUs`);
+        batchBar.stop();
     }
 
-    return Array.from(invalidProductIds);
+    multiBar.stop();
+
+    return Array.from(invalidProductIds).sort();
 }
 
 function getHeaders(appKey, appToken) {
@@ -121,8 +127,6 @@ async function main() {
     const invalidProductIds = await fetchInvalidProductIds(accountName, appKey, appToken);
     
     console.log('Invalid product IDs:');
-
-    // write to file
     
     console.log(invalidProductIds);
     fs.writeFileSync('invalid-product-ids.txt', invalidProductIds.join('\n'));
