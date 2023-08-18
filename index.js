@@ -59,7 +59,8 @@ async function fetchInvalidProductIds(accountName, appKey, appToken, maxRetries 
     const skuList = await fetchAllSKUs(accountName, appKey, appToken);
 
     const invalidProductIds = new Set();
-    const batchSize = 1000;
+    const visibleInvalidProductIds = new Set();
+    const batchSize = 100;
 
     const multiBar = new MultiBar();
 
@@ -77,8 +78,12 @@ async function fetchInvalidProductIds(accountName, appKey, appToken, maxRetries 
             if (response && response.status < 500) {
                 const currentProduct = response.data;
 
-                if (!currentProduct.ProductRefId) {
+                if (!currentProduct.ProductRefId && !currentProduct.ProductIsVisible) {
                     invalidProductIds.add(currentProduct.ProductId);
+                }
+
+                if (!currentProduct.ProductRefId && currentProduct.ProductIsVisible) {
+                    visibleInvalidProductIds.add(currentProduct.ProductId);
                 }
             }
             batchBar.increment();
@@ -91,7 +96,7 @@ async function fetchInvalidProductIds(accountName, appKey, appToken, maxRetries 
 
     multiBar.stop();
 
-    return Array.from(invalidProductIds).sort();
+    return { invalidProductIds: Array.from(invalidProductIds).sort(), visibleInvalidProductIds: Array.from(visibleInvalidProductIds).sort()}
 }
 
 function getHeaders(appKey, appToken) {
@@ -124,12 +129,14 @@ function validateArguments() {
 async function main() {
     const { accountName, appKey, appToken } = validateArguments();
     
-    const invalidProductIds = await fetchInvalidProductIds(accountName, appKey, appToken);
+    const {invalidProductIds, visibleInvalidProductIds} = await fetchInvalidProductIds(accountName, appKey, appToken);
     
     console.log('Invalid product IDs:');
     
     console.log(invalidProductIds);
+    console.log(visibleInvalidProductIds);
     fs.writeFileSync('invalid-product-ids.txt', invalidProductIds.join('\n'));
+    fs.writeFileSync('visible-invalid-product-ids.txt', visibleInvalidProductIds.join('\n'));
 }
 
 main();
